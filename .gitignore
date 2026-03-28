@@ -3,3 +3,8 @@ dist/
 *.tsbuildinfo
 .DS_Store
 demo/node_modules/
+
+# 실제 문서 fixture — 개인 문서이므로 저장소에 포함하지 않음
+tests/fixtures/*.hwp
+tests/fixtures/*.hwpx
+tests/fixtures/*.pdf

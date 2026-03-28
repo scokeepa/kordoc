@@ -171,13 +171,76 @@ function mergeLineItems(items: { text: string; x: number; width: number }[]): st
   return result
 }
 
+/**
+ * PDF 텍스트 후처리 — 페이지 번호 제거, 한국어 줄 병합, 빈 줄 정규화.
+ */
 export function cleanPdfText(text: string): string {
-  return text
-    .replace(/^[\s]*[-–—]\s*\d+\s*[-–—][\s]*$/gm, "")
-    .replace(/^\s*\d+\s*\/\s*\d+\s*$/gm, "")
-    .replace(/([가-힣·,\-])\n([가-힣(])/g, "$1 $2")
+  const stripped = text
+    .replace(/^[\s]*[-–—]\s*\d+\s*[-–—][\s]*$/gm, "")   // 페이지 번호: - 1 -, — 25 —
+    .replace(/^\s*\d+\s*\/\s*\d+\s*$/gm, "")             // 페이지 번호: 3 / 10
+
+  return mergeKoreanLines(stripped)
     .replace(/\n{3,}/g, "\n\n")
     .trim()
+}
+
+// ─── 한국어 줄 병합 ─────────────────────────────────────
+
+/**
+ * 다음 줄이 리스트/번호/구조 마커로 시작하는지 판별.
+ * 이 패턴들은 한국 공문서에서 독립 항목이므로 이전 줄과 병합하면 안 됨.
+ */
+function startsWithMarker(line: string): boolean {
+  const t = line.trimStart()
+  if (/^[가-힣ㄱ-ㅎ][.)]/.test(t)) return true     // 한글 번호: 가. 나) 다.
+  if (/^\d+[.)]/.test(t)) return true               // 숫자 번호: 1. 2) 3.
+  if (/^\([가-힣ㄱ-ㅎ\d]+\)/.test(t)) return true   // 괄호 번호: (1) (가)
+  if (/^[○●※▶▷◆◇■□★☆\-·]\s/.test(t)) return true // 기호 마커: ○ ● ※ ▶ - ·
+  if (/^제\d+[조항호장절]/.test(t)) return true      // 법령 조항: 제1조, 제2항, 제3호
+  return false
+}
+
+/**
+ * 이전 줄이 독립 구조 헤더(법령 조항 번호 등)인지 판별.
+ * 예: "제1조", "제2조(목적)", "제3장 국민의 권리" — 다음 줄과 병합하면 안 됨.
+ */
+function isStandaloneHeader(line: string): boolean {
+  const t = line.trim()
+  if (t.length > 40) return false                    // 긴 줄은 본문 — 헤더 아님
+  return /^제\d+[조항호장절]/.test(t)
+}
+
+/**
+ * 한국어 문단 줄 병합 — 리스트/번호/법령 마커 보호.
+ *
+ * 병합 조건:
+ * 1. 이전 줄이 한글/구두점(·,-)으로 끝남
+ * 2. 다음 줄이 한글/여는괄호로 시작
+ * 3. 다음 줄이 리스트/구조 마커가 아님
+ * 4. 이전 줄이 독립 구조 헤더가 아님
+ */
+function mergeKoreanLines(text: string): string {
+  const lines = text.split("\n")
+  const result: string[] = [lines[0]]
+
+  for (let i = 1; i < lines.length; i++) {
+    const prev = result[result.length - 1]
+    const curr = lines[i]
+
+    const shouldMerge =
+      /[가-힣·,\-]$/.test(prev) &&
+      /^[가-힣(]/.test(curr) &&
+      !startsWithMarker(curr) &&
+      !isStandaloneHeader(prev)
+
+    if (shouldMerge) {
+      result[result.length - 1] = prev + " " + curr
+    } else {
+      result.push(curr)
+    }
+  }
+
+  return result.join("\n")
 }
 
 function reconstructTables(text: string): string {

@@ -29,7 +29,7 @@ function stripDtd(xml: string): string {
 }
 
 export async function parseHwpxDocument(buffer: ArrayBuffer): Promise<string> {
-  // loadAsync 전 사전 검증 — Central Directory에서 선언된 비압축 크기 합산
+  // Best-effort 사전 검증 — CD 선언 크기 기반 (위조 가능, 실제 방어는 per-file 누적 체크)
   const precheck = precheckZipSize(buffer)
   if (precheck.totalUncompressed > MAX_DECOMPRESS_SIZE) {
     throw new KordocError("ZIP 비압축 크기 초과 (ZIP bomb 의심)")
@@ -65,41 +65,54 @@ export async function parseHwpxDocument(buffer: ArrayBuffer): Promise<string> {
 /**
  * loadAsync 전 raw buffer에서 Central Directory를 파싱하여
  * 선언된 비압축 크기 합산 + 엔트리 수를 사전 검증.
+ *
+ * ⚠️ 한계: CD에 선언된 비압축 크기는 공격자가 위조 가능.
+ * 이 함수는 "정직한 ZIP"에 대한 조기 거부(best-effort early rejection)만 수행.
+ * 실제 ZIP bomb 방어는 loadAsync 후 per-file 누적 크기 체크에서 담당.
+ *
  * Central Directory가 손상된 경우(extractFromBrokenZip으로 폴백될 케이스)에는
  * 안전한 기본값을 반환하여 loadAsync가 시도되도록 함.
+ *
+ * @internal 테스트 전용 export — public API(index.ts)에서 재노출하지 않음
  */
-function precheckZipSize(buffer: ArrayBuffer): { totalUncompressed: number; entryCount: number } {
-  const data = new DataView(buffer)
-  const len = buffer.byteLength
+export function precheckZipSize(buffer: ArrayBuffer): { totalUncompressed: number; entryCount: number } {
+  try {
+    const data = new DataView(buffer)
+    const len = buffer.byteLength
+    if (len < 22) return { totalUncompressed: 0, entryCount: 0 }
 
-  // End of Central Directory (EOCD) 시그니처를 뒤에서부터 탐색
-  // EOCD는 최소 22바이트, comment 최대 65535바이트
-  const searchStart = Math.max(0, len - 22 - 65535)
-  let eocdOffset = -1
-  for (let i = len - 22; i >= searchStart; i--) {
-    if (data.getUint32(i, true) === 0x06054b50) { eocdOffset = i; break }
+    // End of Central Directory (EOCD) 시그니처를 뒤에서부터 탐색
+    // EOCD는 최소 22바이트, comment 최대 65535바이트
+    const searchStart = Math.max(0, len - 22 - 65535)
+    let eocdOffset = -1
+    for (let i = len - 22; i >= searchStart; i--) {
+      if (data.getUint32(i, true) === 0x06054b50) { eocdOffset = i; break }
+    }
+    if (eocdOffset < 0) return { totalUncompressed: 0, entryCount: 0 }
+
+    const entryCount = data.getUint16(eocdOffset + 10, true)
+    const cdSize = data.getUint32(eocdOffset + 12, true)
+    const cdOffset = data.getUint32(eocdOffset + 16, true)
+
+    if (cdOffset + cdSize > len) return { totalUncompressed: 0, entryCount }
+
+    // Central Directory 엔트리 순회
+    let totalUncompressed = 0
+    let pos = cdOffset
+    for (let i = 0; i < entryCount && pos + 46 <= cdOffset + cdSize; i++) {
+      if (data.getUint32(pos, true) !== 0x02014b50) break
+      totalUncompressed += data.getUint32(pos + 24, true)
+      const nameLen = data.getUint16(pos + 28, true)
+      const extraLen = data.getUint16(pos + 30, true)
+      const commentLen = data.getUint16(pos + 32, true)
+      pos += 46 + nameLen + extraLen + commentLen
+    }
+
+    return { totalUncompressed, entryCount }
+  } catch {
+    // DataView 범위 초과 등 예외 시 안전한 기본값 반환
+    return { totalUncompressed: 0, entryCount: 0 }
   }
-  if (eocdOffset < 0) return { totalUncompressed: 0, entryCount: 0 } // 손상 — 폴백 허용
-
-  const entryCount = data.getUint16(eocdOffset + 10, true)
-  const cdSize = data.getUint32(eocdOffset + 12, true)
-  const cdOffset = data.getUint32(eocdOffset + 16, true)
-
-  if (cdOffset + cdSize > len) return { totalUncompressed: 0, entryCount }
-
-  // Central Directory 엔트리 순회
-  let totalUncompressed = 0
-  let pos = cdOffset
-  for (let i = 0; i < entryCount && pos + 46 <= cdOffset + cdSize; i++) {
-    if (data.getUint32(pos, true) !== 0x02014b50) break // CD 시그니처
-    totalUncompressed += data.getUint32(pos + 24, true) // uncompressed size
-    const nameLen = data.getUint16(pos + 28, true)
-    const extraLen = data.getUint16(pos + 30, true)
-    const commentLen = data.getUint16(pos + 32, true)
-    pos += 46 + nameLen + extraLen + commentLen
-  }
-
-  return { totalUncompressed, entryCount }
 }
 
 // ─── 손상 ZIP 복구 (edu-facility-ai에서 포팅) ──────────

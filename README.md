@@ -133,12 +133,16 @@ interface ParseResult {
 }
 ```
 
-### Low-Level Exports
+### Advanced Exports
+
+For custom IR pipelines or table rendering:
 
 ```typescript
 import { buildTable, blocksToMarkdown, convertTableToText } from "kordoc"
 import type { IRBlock, IRTable, IRCell, CellContext } from "kordoc"
 ```
+
+> `KordocError`, `sanitizeError`, `isPathTraversal` were removed from public API in v1.1.0. These are internal utilities.
 
 ## Requirements
 
@@ -147,9 +151,10 @@ import type { IRBlock, IRTable, IRCell, CellContext } from "kordoc"
 
 ## Security
 
-v1.0.0 production-grade security hardening:
+Production-grade security hardening:
 
 - **ZIP bomb protection** — Entry count validation, 100MB decompression limit, 500 entry cap
+  > **Known limitation:** Pre-check reads declared sizes from ZIP Central Directory, which an attacker can falsify. The primary defense is per-file cumulative size tracking during actual decompression. For fully untrusted input where streaming decompression is required, consider wrapping kordoc behind a size-limited sandbox.
 - **XXE/Billion Laughs prevention** — Internal DTD subsets fully stripped from HWPX XML
 - **Decompression bomb guard** — `maxOutputLength` on HWP5 zlib streams, cumulative 100MB limit across sections
 - **PDF resource limits** — MAX_PAGES=5,000, cumulative text size 100MB cap, `doc.destroy()` cleanup

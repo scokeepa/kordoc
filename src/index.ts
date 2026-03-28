@@ -76,4 +76,4 @@ export async function parsePdf(buffer: ArrayBuffer): Promise<ParseResult> {
 export { detectFormat, isHwpxFile, isOldHwpFile, isPdfFile } from "./detect.js"
 export type { ParseResult, ParseSuccess, ParseFailure, FileType, IRBlock, IRTable, IRCell, CellContext } from "./types.js"
 export { buildTable, blocksToMarkdown, convertTableToText } from "./table/builder.js"
-export { VERSION, KordocError, sanitizeError, isPathTraversal } from "./utils.js"
+export { VERSION } from "./utils.js"
