@@ -1,21 +1,21 @@
 {
   "name": "kordoc",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Parse Korean documents (HWP, HWPX, PDF) to Markdown",
   "type": "module",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
+      "import": "./dist/index.js",
       "require": "./dist/index.cjs"
     }
   },
   "main": "./dist/index.cjs",
-  "module": "./dist/index.mjs",
+  "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "kordoc": "./dist/cli.mjs",
-    "kordoc-mcp": "./dist/mcp.mjs"
+    "kordoc": "./dist/cli.js",
+    "kordoc-mcp": "./dist/mcp.js"
   },
   "files": [
     "dist"
