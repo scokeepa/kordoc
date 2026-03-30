@@ -394,13 +394,19 @@ function parseCellBlock(records: HwpRecord[], startIdx: number, tableLevel: numb
   const cellLevel = rec.level
   const texts: string[] = []
 
-  // LIST_HEADER에서 셀 병합 정보 추출
-  // HWP5 셀 LIST_HEADER 구조: paraCount(u16) + flags(u32) + colAddr(u16) + rowAddr(u16) + colSpan(u16) + rowSpan(u16)
+  // LIST_HEADER에서 셀 위치 및 병합 정보 추출
+  // HWP5 셀 LIST_HEADER 구조:
+  //   paraCount(u16) + flags(u32) + width(u16) + colAddr(u16) + rowAddr(u16) + colSpan(u16) + rowSpan(u16)
+  //   offset: 0         2            6           8              10             12             14
   let colSpan = 1
   let rowSpan = 1
-  if (rec.data.length >= 14) {
-    const cs = rec.data.readUInt16LE(10)
-    const rs = rec.data.readUInt16LE(12)
+  let colAddr: number | undefined
+  let rowAddr: number | undefined
+  if (rec.data.length >= 16) {
+    colAddr = rec.data.readUInt16LE(8)
+    rowAddr = rec.data.readUInt16LE(10)
+    const cs = rec.data.readUInt16LE(12)
+    const rs = rec.data.readUInt16LE(14)
     if (cs > 0) colSpan = Math.min(cs, MAX_COLS)
     if (rs > 0) rowSpan = Math.min(rs, MAX_ROWS)
   }
@@ -419,17 +425,20 @@ function parseCellBlock(records: HwpRecord[], startIdx: number, tableLevel: numb
     i++
   }
 
-  return { cell: { text: texts.join("\n"), colSpan, rowSpan } as CellContext, nextIdx: i }
+  return { cell: { text: texts.join("\n"), colSpan, rowSpan, colAddr, rowAddr } as CellContext, nextIdx: i }
 }
 
 function arrangeCells(rows: number, cols: number, cells: CellContext[]): CellContext[][] {
   const grid: (CellContext | null)[][] = Array.from({ length: rows }, () => Array(cols).fill(null))
-  let cellIdx = 0
 
-  for (let r = 0; r < rows && cellIdx < cells.length; r++) {
-    for (let c = 0; c < cols && cellIdx < cells.length; c++) {
-      if (grid[r][c] !== null) continue
-      const cell = cells[cellIdx++]
+  // colAddr/rowAddr가 있으면 직접 배치 (HWP5 병합 테이블 정확도 향상)
+  const hasAddr = cells.some(c => c.colAddr !== undefined && c.rowAddr !== undefined)
+
+  if (hasAddr) {
+    for (const cell of cells) {
+      const r = cell.rowAddr ?? 0
+      const c = cell.colAddr ?? 0
+      if (r >= rows || c >= cols) continue
       grid[r][c] = cell
 
       for (let dr = 0; dr < cell.rowSpan; dr++) {
@@ -437,6 +446,24 @@ function arrangeCells(rows: number, cols: number, cells: CellContext[]): CellCon
           if (dr === 0 && dc === 0) continue
           if (r + dr < rows && c + dc < cols)
             grid[r + dr][c + dc] = { text: "", colSpan: 1, rowSpan: 1 }
+        }
+      }
+    }
+  } else {
+    // fallback: 순차 배치 (colAddr 없는 경우)
+    let cellIdx = 0
+    for (let r = 0; r < rows && cellIdx < cells.length; r++) {
+      for (let c = 0; c < cols && cellIdx < cells.length; c++) {
+        if (grid[r][c] !== null) continue
+        const cell = cells[cellIdx++]
+        grid[r][c] = cell
+
+        for (let dr = 0; dr < cell.rowSpan; dr++) {
+          for (let dc = 0; dc < cell.colSpan; dc++) {
+            if (dr === 0 && dc === 0) continue
+            if (r + dr < rows && c + dc < cols)
+              grid[r + dr][c + dc] = { text: "", colSpan: 1, rowSpan: 1 }
+          }
         }
       }
     }

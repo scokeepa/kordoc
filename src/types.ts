@@ -6,6 +6,10 @@ export interface CellContext {
   text: string
   colSpan: number
   rowSpan: number
+  /** HWP5 셀 열 주소 (0-based) — 병합 테이블 배치용 */
+  colAddr?: number
+  /** HWP5 셀 행 주소 (0-based) — 병합 테이블 배치용 */
+  rowAddr?: number
 }
 
 /** 블록 타입 — v2.0에서 heading, list, image, separator 추가 */

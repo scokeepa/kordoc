@@ -216,7 +216,11 @@ export function extractText(data: Buffer): string {
     switch (ch) {
       case CHAR_LINE: result += "\n"; break
       case CHAR_PARA: break
-      case CHAR_TAB: result += "\t"; break
+      case CHAR_TAB:
+        result += "\t"
+        // TAB(0x0009)은 인라인 컨트롤(ch 4-9)로 14바이트 확장 데이터가 뒤따름
+        if (i + 14 <= data.length) i += 14
+        break
       case CHAR_HYPHEN: result += "-"; break
       case CHAR_NBSP: case CHAR_FIXED_NBSP: result += " "; break
       default:
