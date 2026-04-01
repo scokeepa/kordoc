@@ -27,13 +27,12 @@ const MAX_XML_DEPTH = 200
 
 interface TableState { rows: CellContext[][]; currentRow: CellContext[]; cell: CellContext | null }
 
-/** xmldom DOMParser 생성 — errorHandler 설정으로 malformed XML 경고 수집 */
+/** xmldom DOMParser 생성 — onError 콜백으로 malformed XML 경고 수집 */
 function createXmlParser(warnings?: ParseWarning[]): DOMParser {
   return new DOMParser({
-    errorHandler: {
-      warning(msg: string) { warnings?.push({ code: "MALFORMED_XML", message: `XML 경고: ${msg}` }) },
-      error(msg: string) { warnings?.push({ code: "MALFORMED_XML", message: `XML 오류: ${msg}` }) },
-      fatalError(msg: string) { throw new KordocError(`XML 파싱 실패: ${msg}`) },
+    onError(level: "warn" | "error" | "fatalError", msg: string) {
+      if (level === "fatalError") throw new KordocError(`XML 파싱 실패: ${msg}`)
+      warnings?.push({ code: "MALFORMED_XML", message: `XML ${level === "warn" ? "경고" : "오류"}: ${msg}` })
     },
   })
 }
