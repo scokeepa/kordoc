@@ -14,6 +14,18 @@
 
 ---
 
+## 💡 What can you do with kordoc?
+
+Beyond simple text extraction, kordoc automates the **entire lifecycle of Korean government documents**.
+
+*   **📄 Any Document to Markdown**: Convert `HWP`, `HWPX`, and `PDF` into clean `Markdown` instantly. It produces the optimal input for LLMs to analyze and reason.
+*   **📊 Perfect Table Reconstruction**: Whether it's a borderless PDF table or a complex merged HWP table, kordoc analyzes the structure to restore accurate markdown tables.
+*   **🔍 Automatic Redline (Diff)**: Compare two documents and see exactly what changed at a glance. Supports cross-format comparison (e.g., Old HWP vs New HWPX).
+*   **📝 Markdown back to HWPX**: Convert AI-generated content back into official `HWPX` reports. No more tedious manual copy-pasting.
+*   **🤖 AI Agent Integration (MCP)**: Native support for `Model Context Protocol`. Let `Claude`, `Cursor`, or `Windsurf` read and process Korean documents directly.
+
+---
+
 ## What's New in v1.7.1
 
 - **Image Extraction (HWP/HWPX)** — Binary image extraction from ZIP entries and HWP5 BinData streams. Rendered as `![image](...)` in markdown output.
