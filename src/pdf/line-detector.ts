@@ -8,6 +8,19 @@
 
 import { OPS } from "pdfjs-dist/legacy/build/pdf.mjs"
 
+// ─── pdfjs-dist v5 DrawOPS (v5에서 constructPath 형식 변경) ──
+// v4: args = [subOps: number[], coords: number[], minMax]
+//     subOps uses OPS.moveTo(13), OPS.lineTo(14), OPS.rectangle(19)
+// v5: args = [afterOp: number, [pathData: object], minMax]
+//     pathData is flat array using DrawOPS: moveTo=0, lineTo=1, curveTo=2, closePath=4
+const enum DrawOPS {
+  moveTo = 0,
+  lineTo = 1,
+  curveTo = 2,
+  quadraticCurveTo = 3,
+  closePath = 4,
+}
+
 // ─── 타입 ─────────────────────────────────────────────
 
 export interface LineSegment {
@@ -64,6 +77,24 @@ export function extractLines(
   let pathStartX = 0, pathStartY = 0
   let curX = 0, curY = 0
 
+  function pushRectangle(
+    path: Array<{ x1: number; y1: number; x2: number; y2: number }>,
+    rx: number, ry: number, rw: number, rh: number,
+  ) {
+    if (Math.abs(rh) < ORIENTATION_TOL * 2) {
+      path.push({ x1: rx, y1: ry + rh / 2, x2: rx + rw, y2: ry + rh / 2 })
+    } else if (Math.abs(rw) < ORIENTATION_TOL * 2) {
+      path.push({ x1: rx + rw / 2, y1: ry, x2: rx + rw / 2, y2: ry + rh })
+    } else {
+      path.push(
+        { x1: rx, y1: ry, x2: rx + rw, y2: ry },
+        { x1: rx + rw, y1: ry, x2: rx + rw, y2: ry + rh },
+        { x1: rx + rw, y1: ry + rh, x2: rx, y2: ry + rh },
+        { x1: rx, y1: ry + rh, x2: rx, y2: ry },
+      )
+    }
+  }
+
   function flushPath(isStroke: boolean) {
     if (!isStroke) { currentPath = []; return }
     for (const seg of currentPath) {
@@ -82,46 +113,84 @@ export function extractLines(
         break
 
       case OPS.constructPath: {
-        const subOps = (args as [number[], number[], number[]])[0]
-        const coords = (args as [number[], number[], number[]])[1]
-        let ci = 0
+        const arg0 = args[0]
 
-        for (const subOp of subOps) {
-          if (subOp === OPS.moveTo) {
-            curX = coords[ci++]; curY = coords[ci++]
-            pathStartX = curX; pathStartY = curY
-          } else if (subOp === OPS.lineTo) {
-            const x2 = coords[ci++], y2 = coords[ci++]
-            currentPath.push({ x1: curX, y1: curY, x2, y2 })
-            curX = x2; curY = y2
-          } else if (subOp === OPS.rectangle) {
-            const rx = coords[ci++], ry = coords[ci++]
-            const rw = coords[ci++], rh = coords[ci++]
-            // 사각형 → 4변 (매우 얇으면 선 1개로)
-            if (Math.abs(rh) < ORIENTATION_TOL * 2) {
-              // 얇은 수평 사각형 → 수평선
-              currentPath.push({ x1: rx, y1: ry + rh / 2, x2: rx + rw, y2: ry + rh / 2 })
-            } else if (Math.abs(rw) < ORIENTATION_TOL * 2) {
-              // 얇은 수직 사각형 → 수직선
-              currentPath.push({ x1: rx + rw / 2, y1: ry, x2: rx + rw / 2, y2: ry + rh })
-            } else {
-              // 일반 사각형 → 4변
-              currentPath.push(
-                { x1: rx, y1: ry, x2: rx + rw, y2: ry },           // bottom
-                { x1: rx + rw, y1: ry, x2: rx + rw, y2: ry + rh }, // right
-                { x1: rx + rw, y1: ry + rh, x2: rx, y2: ry + rh }, // top
-                { x1: rx, y1: ry + rh, x2: rx, y2: ry },           // left
-              )
+        if (Array.isArray(arg0)) {
+          // ── pdfjs-dist v4 형식 ──
+          // args = [subOps: number[], coords: number[], minMax]
+          // subOps uses OPS constants: moveTo=13, lineTo=14, rectangle=19
+          const subOps = arg0 as number[]
+          const coords = (args as [number[], number[]])[1]
+          let ci = 0
+
+          for (const subOp of subOps) {
+            if (subOp === OPS.moveTo) {
+              curX = coords[ci++]; curY = coords[ci++]
+              pathStartX = curX; pathStartY = curY
+            } else if (subOp === OPS.lineTo) {
+              const x2 = coords[ci++], y2 = coords[ci++]
+              currentPath.push({ x1: curX, y1: curY, x2, y2 })
+              curX = x2; curY = y2
+            } else if (subOp === OPS.rectangle) {
+              const rx = coords[ci++], ry = coords[ci++]
+              const rw = coords[ci++], rh = coords[ci++]
+              pushRectangle(currentPath, rx, ry, rw, rh)
+            } else if (subOp === OPS.closePath) {
+              if (curX !== pathStartX || curY !== pathStartY) {
+                currentPath.push({ x1: curX, y1: curY, x2: pathStartX, y2: pathStartY })
+              }
+              curX = pathStartX; curY = pathStartY
+            } else if (subOp === OPS.curveTo) {
+              ci += 6
+            } else if (subOp === OPS.curveTo2 || subOp === OPS.curveTo3) {
+              ci += 4
             }
-          } else if (subOp === OPS.closePath) {
-            if (curX !== pathStartX || curY !== pathStartY) {
-              currentPath.push({ x1: curX, y1: curY, x2: pathStartX, y2: pathStartY })
+          }
+        } else {
+          // ── pdfjs-dist v5 형식 ──
+          // args = [afterOp: number, [pathData: object], minMax]
+          // afterOp = OPS.stroke(20), OPS.endPath(28), OPS.fill(22), etc.
+          // pathData uses DrawOPS: moveTo=0, lineTo=1, curveTo=2, closePath=4
+          const afterOp = arg0 as number
+          const dataArr = args[1] as unknown[]
+          const pathData = dataArr?.[0] as Record<number, number> | undefined
+          if (pathData && typeof pathData === "object") {
+            // pathData is an object with numeric keys: {0: op, 1: x, 2: y, ...}
+            const len = Object.keys(pathData).length
+            let di = 0
+            while (di < len) {
+              const drawOp = pathData[di++]
+              if (drawOp === DrawOPS.moveTo) {
+                curX = pathData[di++]; curY = pathData[di++]
+                pathStartX = curX; pathStartY = curY
+              } else if (drawOp === DrawOPS.lineTo) {
+                const x2 = pathData[di++], y2 = pathData[di++]
+                currentPath.push({ x1: curX, y1: curY, x2, y2 })
+                curX = x2; curY = y2
+              } else if (drawOp === DrawOPS.curveTo) {
+                di += 6
+              } else if (drawOp === DrawOPS.quadraticCurveTo) {
+                di += 4
+              } else if (drawOp === DrawOPS.closePath) {
+                if (curX !== pathStartX || curY !== pathStartY) {
+                  currentPath.push({ x1: curX, y1: curY, x2: pathStartX, y2: pathStartY })
+                }
+                curX = pathStartX; curY = pathStartY
+              } else {
+                break // unknown op
+              }
             }
-            curX = pathStartX; curY = pathStartY
-          } else if (subOp === OPS.curveTo) {
-            ci += 6 // skip control points
-          } else if (subOp === OPS.curveTo2 || subOp === OPS.curveTo3) {
-            ci += 4
+          }
+
+          // v5: afterOp이 stroke/fill이면 즉시 flush
+          if (afterOp === OPS.stroke || afterOp === OPS.closeStroke) {
+            flushPath(true)
+          } else if (afterOp === OPS.fill || afterOp === OPS.eoFill ||
+                     afterOp === OPS.fillStroke || afterOp === OPS.eoFillStroke ||
+                     afterOp === OPS.closeFillStroke || afterOp === OPS.closeEOFillStroke) {
+            flushPath(true)
+          } else if (afterOp === OPS.endPath) {
+            flushPath(false)
           }
         }
         break
