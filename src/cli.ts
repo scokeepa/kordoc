@@ -11,9 +11,9 @@ const program = new Command()
 
 program
   .name("kordoc")
-  .description("모두 파싱해버리겠다 — HWP, HWPX, PDF → Markdown")
+  .description("모두 파싱해버리겠다 — HWP, HWPX, PDF, XLSX, DOCX → Markdown")
   .version(VERSION)
-  .argument("<files...>", "변환할 파일 경로 (HWP, HWPX, PDF)")
+  .argument("<files...>", "변환할 파일 경로 (HWP, HWPX, PDF, XLSX, DOCX)")
   .option("-o, --output <path>", "출력 파일 경로 (단일 파일 시)")
   .option("-d, --out-dir <dir>", "출력 디렉토리 (다중 파일 시)")
   .option("-p, --pages <range>", "페이지/섹션 범위 (예: 1-3, 1,3,5)")

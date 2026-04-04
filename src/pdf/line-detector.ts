@@ -2,8 +2,15 @@
  * PDF 그래픽 명령에서 수평/수직 선을 추출하고,
  * 선 교차점 기반으로 테이블 그리드를 구성하는 모듈.
  *
- * ODL(OpenDataLoader) TableBorderBuilder 알고리즘을 TypeScript로 포팅.
- * pdfjs-dist의 getOperatorList() 결과를 입력으로 받음.
+ * 이 파일의 테이블 감지 알고리즘은 OpenDataLoader PDF의
+ * TableBorderBuilder를 참고하여 TypeScript로 재구현한 것입니다.
+ *
+ * Original work: Copyright 2025-2026 Hancom, Inc.
+ * Licensed under the Apache License, Version 2.0
+ * https://github.com/opendataloader-project/opendataloader-pdf
+ *
+ * Modifications: TypeScript 포팅, pdfjs-dist v4/v5 호환,
+ * 한국어 PDF 특화 최적화 (문자 간격, 셀 텍스트 병합)
  */
 
 import { OPS } from "pdfjs-dist/legacy/build/pdf.mjs"
@@ -320,7 +327,45 @@ export function buildTableGrids(
     grids.push({ rowYs, colXs, bbox })
   }
 
-  return grids
+  // 인접 그리드 병합: 같은 열 구조 + 수직으로 가까운 그리드 합치기
+  return mergeAdjacentGrids(grids)
+}
+
+/** 같은 열 구조를 가진 인접 그리드를 병합 (테이블 분리 방지) */
+function mergeAdjacentGrids(grids: TableGrid[]): TableGrid[] {
+  if (grids.length <= 1) return grids
+  // Y 좌표 기준 정렬 (위→아래 = y2 내림차순)
+  const sorted = [...grids].sort((a, b) => b.bbox.y2 - a.bbox.y2)
+  const merged: TableGrid[] = [sorted[0]]
+
+  for (let i = 1; i < sorted.length; i++) {
+    const prev = merged[merged.length - 1]
+    const curr = sorted[i]
+
+    // 같은 열 수 + 열 위치가 비슷한지 확인
+    if (prev.colXs.length === curr.colXs.length) {
+      const colMatch = prev.colXs.every((x, ci) => Math.abs(x - curr.colXs[ci]) <= COORD_MERGE_TOL * 3)
+      // 수직으로 인접 (갭 < 20pt ≈ 7mm)
+      const verticalGap = prev.bbox.y1 - curr.bbox.y2
+      if (colMatch && verticalGap >= -COORD_MERGE_TOL && verticalGap <= 20) {
+        // 병합: rowYs 합치기 (중복 제거), bbox 확장
+        const allRowYs = [...new Set([...prev.rowYs, ...curr.rowYs])].sort((a, b) => b - a)
+        merged[merged.length - 1] = {
+          rowYs: allRowYs,
+          colXs: prev.colXs,
+          bbox: {
+            x1: Math.min(prev.bbox.x1, curr.bbox.x1),
+            y1: Math.min(prev.bbox.y1, curr.bbox.y1),
+            x2: Math.max(prev.bbox.x2, curr.bbox.x2),
+            y2: Math.max(prev.bbox.y2, curr.bbox.y2),
+          },
+        }
+        continue
+      }
+    }
+    merged.push(curr)
+  }
+  return merged
 }
 
 /** 좌표값 클러스터링 — 가까운 값끼리 병합 */
@@ -586,8 +631,15 @@ export function cellTextToString(items: TextItem[]): string {
     for (let j = 1; j < s.length; j++) {
       const gap = s[j].x - (s[j - 1].x + s[j - 1].w)
       const avgFs = (s[j].fontSize + s[j - 1].fontSize) / 2
-      // 한글-한글 사이 매우 작은 갭 (< fontSize * 0.3) → PDF 문자 개별 배치 잔재
-      if (gap < avgFs * 0.3 && /[가-힣]$/.test(result) && /^[가-힣]/.test(s[j].text)) {
+      // 한글 관련 문자 전환 시 작은 갭 → 공백 없이 붙임
+      // (한글-한글, ASCII→한글, 한글→ASCII 모두 포함)
+      const prevIsKorean = /[가-힣]$/.test(result)
+      const currIsKorean = /^[가-힣]/.test(s[j].text)
+      if (gap < avgFs * 0.15) {
+        // 매우 작은 갭 — 모든 문자 타입에서 공백 없이 붙임
+        result += s[j].text
+      } else if (gap < avgFs * 0.35 && (prevIsKorean || currIsKorean)) {
+        // 한글 관련 작은 갭 — PDF 문자 개별 배치 잔재
         result += s[j].text
       } else {
         result += " " + s[j].text
@@ -596,17 +648,29 @@ export function cellTextToString(items: TextItem[]): string {
     return result
   })
 
-  // 한국어 줄바꿈 병합: "전자여\n권" → "전자여권"
-  // 셀 컨텍스트에서는 더 공격적으로: 8자 이하 순수 한글 또는 한글+숫자 단어
+  // 셀 내 줄바꿈 병합 — 잘린 단어/숫자 조각 복구
   if (textLines.length <= 1) return textLines[0] || ""
   const merged: string[] = [textLines[0]]
   for (let i = 1; i < textLines.length; i++) {
     const prev = merged[merged.length - 1]
     const curr = textLines[i]
-    // 짧은 순수 한글 (8자 이하, 공백 없음) = 잘린 단어 조각 또는 조사
+    // 짧은 순수 한글 (8자 이하) = 잘린 단어 조각
     if (/[가-힣]$/.test(prev) && /^[가-힣]+$/.test(curr) && curr.length <= 8 && !curr.includes(" ")) {
       merged[merged.length - 1] = prev + curr
-    } else {
+    }
+    // 닫는 괄호/기호 포함 짧은 줄 (3자 이하) = 이전 줄에 붙임 (예: ")", "%)", "%) 별도")
+    else if (curr.trim().length <= 3 && /^[)\]%}]/.test(curr.trim())) {
+      merged[merged.length - 1] = prev + curr.trim()
+    }
+    // 이전 줄이 여는 괄호나 쉼표로 끝남 = 다음 줄 붙임 (예: "(x15,232,700," + "000)")
+    else if (/[,(]$/.test(prev.trim()) && curr.trim().length <= 15) {
+      merged[merged.length - 1] = prev + curr.trim()
+    }
+    // 숫자 줄바꿈 복구: 이전 줄이 숫자/쉼표로 끝나고 다음 줄이 숫자로 시작하는 짧은 조각
+    else if (/[\d,]$/.test(prev) && /^[\d,]+[)\]]?$/.test(curr.trim()) && curr.trim().length <= 10) {
+      merged[merged.length - 1] = prev + curr.trim()
+    }
+    else {
       merged.push(curr)
     }
   }

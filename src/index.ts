@@ -5,10 +5,12 @@
  */
 
 import { readFile } from "fs/promises"
-import { detectFormat, isHwpxFile, isOldHwpFile, isPdfFile } from "./detect.js"
+import { detectFormat, detectZipFormat, isHwpxFile, isOldHwpFile, isPdfFile, isZipFile } from "./detect.js"
 import { parseHwpxDocument } from "./hwpx/parser.js"
 import { parseHwp5Document } from "./hwp5/parser.js"
 import { parsePdfDocument } from "./pdf/parser.js"
+import { parseXlsxDocument } from "./xlsx/parser.js"
+import { parseDocxDocument } from "./docx/parser.js"
 import type { ParseResult, ParseOptions } from "./types.js"
 import { classifyError, toArrayBuffer } from "./utils.js"
 
@@ -50,8 +52,13 @@ export async function parse(input: string | ArrayBuffer | Buffer, options?: Pars
   const format = detectFormat(buffer)
 
   switch (format) {
-    case "hwpx":
+    case "hwpx": {
+      // ZIP 기반 포맷 세분화: HWPX, XLSX, DOCX 구분
+      const zipFormat = await detectZipFormat(buffer)
+      if (zipFormat === "xlsx") return parseXlsx(buffer, options)
+      if (zipFormat === "docx") return parseDocx(buffer, options)
       return parseHwpx(buffer, options)
+    }
     case "hwp":
       return parseHwp(buffer, options)
     case "pdf":
@@ -92,6 +99,26 @@ export async function parsePdf(buffer: ArrayBuffer, options?: ParseOptions): Pro
   }
 }
 
+/** XLSX 파일을 Markdown으로 변환 */
+export async function parseXlsx(buffer: ArrayBuffer, options?: ParseOptions): Promise<ParseResult> {
+  try {
+    const { markdown, blocks, metadata, warnings } = await parseXlsxDocument(buffer, options)
+    return { success: true, fileType: "xlsx", markdown, blocks, metadata, warnings }
+  } catch (err) {
+    return { success: false, fileType: "xlsx", error: err instanceof Error ? err.message : "XLSX 파싱 실패", code: classifyError(err) }
+  }
+}
+
+/** DOCX 파일을 Markdown으로 변환 */
+export async function parseDocx(buffer: ArrayBuffer, options?: ParseOptions): Promise<ParseResult> {
+  try {
+    const { markdown, blocks, metadata, outline, warnings, images } = await parseDocxDocument(buffer, options)
+    return { success: true, fileType: "docx", markdown, blocks, metadata, outline, warnings, images: images?.length ? images : undefined }
+  } catch (err) {
+    return { success: false, fileType: "docx", error: err instanceof Error ? err.message : "DOCX 파싱 실패", code: classifyError(err) }
+  }
+}
+
 // ─── 게임체인저 API ─────────────────────────────────
 
 export { compare, diffBlocks } from "./diff/compare.js"
@@ -100,7 +127,7 @@ export { markdownToHwpx } from "./hwpx/generator.js"
 
 // ─── Re-exports ──────────────────────────────────────
 
-export { detectFormat, isHwpxFile, isOldHwpFile, isPdfFile } from "./detect.js"
+export { detectFormat, detectZipFormat, isHwpxFile, isOldHwpFile, isPdfFile, isZipFile } from "./detect.js"
 export type {
   ParseResult, ParseSuccess, ParseFailure, FileType,
   IRBlock, IRBlockType, IRTable, IRCell, CellContext,

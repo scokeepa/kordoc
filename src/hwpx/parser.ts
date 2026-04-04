@@ -753,40 +753,50 @@ function walkParagraphChildren(
   if (depth > MAX_XML_DEPTH) return tableCtx
   const children = node.childNodes
   if (!children) return tableCtx
-  for (let i = 0; i < children.length; i++) {
-    const el = children[i] as Element
-    if (el.nodeType !== 1) continue
-    const tag = el.tagName || el.localName || ""
-    const localTag = tag.replace(/^[^:]+:/, "")
-    // 테이블은 walkSection으로 위임
-    if (localTag === "tbl") {
-      if (tableCtx) tableStack.push(tableCtx)
-      const newTable: TableState = { rows: [], currentRow: [], cell: null }
-      walkSection(el, blocks, newTable, tableStack, styleMap, warnings, sectionNum, depth + 1)
-      if (newTable.rows.length > 0) {
-        if (tableStack.length > 0) {
-          const parentTable = tableStack.pop()!
-          const nestedText = convertTableToText(newTable.rows)
-          if (parentTable.cell) {
-            parentTable.cell.text += (parentTable.cell.text ? "\n" : "") + nestedText
+  const walkChildren = (parent: Node, d: number) => {
+    if (d > MAX_XML_DEPTH) return
+    const kids = parent.childNodes
+    if (!kids) return
+    for (let i = 0; i < kids.length; i++) {
+      const el = kids[i] as Element
+      if (el.nodeType !== 1) continue
+      const tag = el.tagName || el.localName || ""
+      const localTag = tag.replace(/^[^:]+:/, "")
+
+      if (localTag === "tbl") {
+        // 테이블은 walkSection으로 위임
+        if (tableCtx) tableStack.push(tableCtx)
+        const newTable: TableState = { rows: [], currentRow: [], cell: null }
+        walkSection(el, blocks, newTable, tableStack, styleMap, warnings, sectionNum, d + 1)
+        if (newTable.rows.length > 0) {
+          if (tableStack.length > 0) {
+            const parentTable = tableStack.pop()!
+            const nestedText = convertTableToText(newTable.rows)
+            if (parentTable.cell) {
+              parentTable.cell.text += (parentTable.cell.text ? "\n" : "") + nestedText
+            }
+            tableCtx = parentTable
+          } else {
+            blocks.push({ type: "table", table: buildTable(newTable.rows), pageNumber: sectionNum })
+            tableCtx = null
           }
-          tableCtx = parentTable
         } else {
-          blocks.push({ type: "table", table: buildTable(newTable.rows), pageNumber: sectionNum })
-          tableCtx = null
+          tableCtx = tableStack.length > 0 ? tableStack.pop()! : null
         }
-      } else {
-        tableCtx = tableStack.length > 0 ? tableStack.pop()! : null
-      }
-    } else if (localTag === "pic" || localTag === "shape" || localTag === "drawingObject") {
-      const imgRef = extractImageRef(el)
-      if (imgRef) {
-        blocks.push({ type: "image", text: imgRef, pageNumber: sectionNum })
-      } else if (warnings && sectionNum) {
-        warnings.push({ page: sectionNum, message: `스킵된 요소: ${localTag}`, code: "SKIPPED_IMAGE" })
+      } else if (localTag === "pic" || localTag === "shape" || localTag === "drawingObject") {
+        const imgRef = extractImageRef(el)
+        if (imgRef) {
+          blocks.push({ type: "image", text: imgRef, pageNumber: sectionNum })
+        } else if (warnings && sectionNum) {
+          warnings.push({ page: sectionNum, message: `스킵된 요소: ${localTag}`, code: "SKIPPED_IMAGE" })
+        }
+      } else if (localTag === "r" || localTag === "run" || localTag === "ctrl") {
+        // <hp:run>, <hp:ctrl> 내부에 테이블/이미지가 포함될 수 있음 — 재귀
+        walkChildren(el, d + 1)
       }
     }
   }
+  walkChildren(node, depth)
   return tableCtx
 }
 
@@ -841,6 +851,18 @@ function extractParagraphInfo(para: Element, styleMap?: HwpxStyleMap): Paragraph
           break
         }
 
+        // 제어 요소 — 필드, 컨트롤, 매개변수 등 스킵
+        case "ctrl": case "fieldBegin": case "fieldEnd":
+        case "parameters": case "stringParam": case "integerParam":
+        case "boolParam": case "floatParam":
+        case "secPr":  // 섹션 속성 (페이지 설정 등)
+        case "colPr":  // 다단 속성
+        case "linesegarray": case "lineseg":  // 레이아웃 정보
+        // 도형/이미지 요소 — 대체텍스트("사각형입니다." 등) 누출 방지
+        case "pic": case "shape": case "drawingObject":
+        case "shapeComment": case "drawText":
+          break
+
         // run 요소에서 charPrIDRef 추출
         case "r": {
           const runCharPr = child.getAttribute("charPrIDRef")
@@ -855,7 +877,14 @@ function extractParagraphInfo(para: Element, styleMap?: HwpxStyleMap): Paragraph
   }
   walk(para)
 
-  const cleanText = text.replace(/[ \t]+/g, " ").trim()
+  let cleanText = text.replace(/[ \t]+/g, " ").trim()
+
+  // 한글 이미지 OLE 대체 텍스트 필터링 ("그림입니다. 원본 그림의 이름: ...")
+  if (/^그림입니다\.?\s*원본\s*그림의\s*(이름|크기)/.test(cleanText)) cleanText = ""
+  // 멀티라인으로 삽입된 OLE 대체 텍스트도 제거
+  cleanText = cleanText.replace(/그림입니다\.?\s*원본\s*그림의\s*(이름|크기)[^\n]*(\n[^\n]*원본\s*그림의\s*(이름|크기)[^\n]*)*/g, "").trim()
+  // HWP 도형/개체 대체텍스트 제거 ("사각형입니다.", "개체 입니다." 등)
+  cleanText = cleanText.replace(/(?:모서리가 둥근 |둥근 )?(?:사각형|직사각형|정사각형|원|타원|삼각형|선|직선|곡선|화살표|오각형|육각형|팔각형|별|십자|구름|마름모|도넛|평행사변형|사다리꼴|개체|그리기\s?개체|묶음\s?개체|글상자|수식|표|그림|OLE\s?개체)\s?입니다\.?/g, "").trim()
 
   // 스타일 정보 조회
   let style: InlineStyle | undefined

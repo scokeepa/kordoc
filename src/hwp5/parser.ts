@@ -7,7 +7,7 @@ import {
   type HwpRecord, type HwpDocInfo, type HwpCharShape,
 } from "./record.js"
 import { buildTable, blocksToMarkdown, MAX_COLS, MAX_ROWS } from "../table/builder.js"
-import type { CellContext, IRBlock, DocumentMetadata, InternalParseResult, ParseOptions, ParseWarning, OutlineItem, InlineStyle, ExtractedImage } from "../types.js"
+import type { CellContext, IRBlock, IRTable, DocumentMetadata, InternalParseResult, ParseOptions, ParseWarning, OutlineItem, InlineStyle, ExtractedImage } from "../types.js"
 import { KordocError } from "../utils.js"
 import { parsePageRange } from "../page-range.js"
 
@@ -505,6 +505,19 @@ function parseTableBlock(records: HwpRecord[], startIdx: number) {
   }
 
   if (rows === 0 || cols === 0 || cells.length === 0) return { table: null, nextIdx: i }
+
+  // colAddr/rowAddr가 있으면 arrangeCells가 이미 완성된 그리드를 반환하므로
+  // buildTable(2-pass) 없이 직접 IRTable 생성 — 이중 colSpan 확장 방지
+  const hasAddr = cells.some(c => c.colAddr !== undefined && c.rowAddr !== undefined)
+  if (hasAddr) {
+    const cellRows = arrangeCells(rows, cols, cells)
+    const irCells = cellRows.map(row => row.map(c => ({
+      text: c.text.trim(),
+      colSpan: c.colSpan,
+      rowSpan: c.rowSpan,
+    })))
+    return { table: { rows, cols, cells: irCells, hasHeader: rows > 1 }, nextIdx: i }
+  }
 
   const cellRows = arrangeCells(rows, cols, cells)
   return { table: buildTable(cellRows), nextIdx: i }

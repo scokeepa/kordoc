@@ -1,0 +1,9 @@
+kordoc
+Copyright 2026 chrisryugj
+
+This product includes software developed by Hancom, Inc.
+(https://github.com/opendataloader-project/opendataloader-pdf)
+
+The PDF table detection algorithm in src/pdf/line-detector.ts is derived from
+OpenDataLoader PDF's TableBorderBuilder, originally licensed under
+Apache License, Version 2.0.
