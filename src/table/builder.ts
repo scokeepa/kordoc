@@ -19,26 +19,29 @@ export function buildTable(rows: CellContext[][]): IRTable {
   if (rows.length > MAX_ROWS) rows = rows.slice(0, MAX_ROWS)
   const numRows = rows.length
 
-  // Pass 1: maxCols 계산 (sparse Set — 메모리 효율적)
-  const tempOccupied = new Set<number>()
+  // colAddr/rowAddr가 있으면 직접 배치 (HWPX cellAddr, HWP5 colAddr/rowAddr)
+  const hasAddr = rows.some(row => row.some(c => c.colAddr !== undefined && c.rowAddr !== undefined))
+  if (hasAddr) return buildTableDirect(rows, numRows)
+
+  // Pass 1: maxCols 계산 — 2D 배열 사용 (동적 확장)
   let maxCols = 0
+  const tempOccupied: boolean[][] = Array.from({ length: numRows }, () => [])
 
   for (let rowIdx = 0; rowIdx < numRows; rowIdx++) {
     let colIdx = 0
     for (const cell of rows[rowIdx]) {
-      while (colIdx < MAX_COLS && tempOccupied.has(rowIdx * MAX_COLS + colIdx)) colIdx++
+      while (colIdx < MAX_COLS && tempOccupied[rowIdx][colIdx]) colIdx++
       if (colIdx >= MAX_COLS) break
 
       for (let r = rowIdx; r < Math.min(rowIdx + cell.rowSpan, numRows); r++) {
         for (let c = colIdx; c < Math.min(colIdx + cell.colSpan, MAX_COLS); c++) {
-          tempOccupied.add(r * MAX_COLS + c)
+          tempOccupied[r][c] = true
         }
       }
       colIdx += cell.colSpan
       if (colIdx > maxCols) maxCols = colIdx
     }
   }
-  tempOccupied.clear()
 
   if (maxCols === 0) return { rows: 0, cols: 0, cells: [], hasHeader: false }
 
@@ -74,7 +77,50 @@ export function buildTable(rows: CellContext[][]): IRTable {
     }
   }
 
-  // 빈 후행 열 제거 — HWP5에서 cols가 실제보다 큰 경우 보정
+  return trimAndReturn(grid, numRows, maxCols)
+}
+
+/** colAddr/rowAddr 절대 좌표 기반 직접 배치 */
+function buildTableDirect(rows: CellContext[][], numRows: number): IRTable {
+  // 전체 셀에서 maxCols 계산
+  let maxCols = 0
+  for (const row of rows) {
+    for (const cell of row) {
+      const end = (cell.colAddr ?? 0) + cell.colSpan
+      if (end > maxCols) maxCols = end
+    }
+  }
+  if (maxCols === 0) return { rows: 0, cols: 0, cells: [], hasHeader: false }
+
+  const grid: IRCell[][] = Array.from({ length: numRows }, () =>
+    Array.from({ length: maxCols }, () => ({ text: "", colSpan: 1, rowSpan: 1 }))
+  )
+
+  for (const row of rows) {
+    for (const cell of row) {
+      const r = cell.rowAddr ?? 0
+      const c = cell.colAddr ?? 0
+      if (r >= numRows || c >= maxCols) continue
+
+      grid[r][c] = { text: cell.text.trim(), colSpan: cell.colSpan, rowSpan: cell.rowSpan }
+
+      // 병합 영역 마킹
+      for (let dr = 0; dr < cell.rowSpan; dr++) {
+        for (let dc = 0; dc < cell.colSpan; dc++) {
+          if (dr === 0 && dc === 0) continue
+          if (r + dr < numRows && c + dc < maxCols) {
+            grid[r + dr][c + dc] = { text: "", colSpan: 1, rowSpan: 1 }
+          }
+        }
+      }
+    }
+  }
+
+  return trimAndReturn(grid, numRows, maxCols)
+}
+
+/** 빈 후행 열 제거 후 IRTable 반환 */
+function trimAndReturn(grid: IRCell[][], numRows: number, maxCols: number): IRTable {
   let effectiveCols = maxCols
   while (effectiveCols > 0) {
     const colEmpty = grid.every(row => !row[effectiveCols - 1]?.text?.trim())
@@ -85,7 +131,6 @@ export function buildTable(rows: CellContext[][]): IRTable {
     const trimmed = grid.map(row => row.slice(0, effectiveCols))
     return { rows: numRows, cols: effectiveCols, cells: trimmed, hasHeader: numRows > 1 }
   }
-
   return { rows: numRows, cols: maxCols, cells: grid, hasHeader: numRows > 1 }
 }
 
@@ -249,14 +294,10 @@ function tableToMarkdown(table: IRTable): string {
   const skip = new Set<string>()
 
   for (let r = 0; r < numRows; r++) {
-    // colSpan이 있으면 cells[r]의 실제 인덱스 ≠ display 열 인덱스
-    // display 열 기준으로 순회하되, cells[r]에서는 순차적으로 소비
-    let cellIdx = 0
     for (let c = 0; c < numCols; c++) {
       if (skip.has(`${r},${c}`)) continue
-      const cell = cells[r]?.[cellIdx]
-      if (!cell) break
-      cellIdx++
+      const cell = cells[r]?.[c]
+      if (!cell) continue
       display[r][c] = sanitizeText(cell.text).replace(/\n/g, "<br>")
 
       for (let dr = 0; dr < cell.rowSpan; dr++) {

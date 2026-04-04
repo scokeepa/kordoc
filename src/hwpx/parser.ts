@@ -646,6 +646,15 @@ function walkSection(
         }
         break
 
+      case "cellAddr":
+        if (tableCtx?.cell) {
+          const ca = parseInt(el.getAttribute("colAddr") || "", 10)
+          const ra = parseInt(el.getAttribute("rowAddr") || "", 10)
+          if (!isNaN(ca)) tableCtx.cell.colAddr = ca
+          if (!isNaN(ra)) tableCtx.cell.rowAddr = ra
+        }
+        break
+
       case "cellSpan":
         if (tableCtx?.cell) {
           const cs = parseInt(el.getAttribute("colSpan") || "1", 10)
