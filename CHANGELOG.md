@@ -26,7 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 하이퍼링크 URL 살균이 HWP5/HWPX/blocksToMarkdown 3개 경로 모두에서 일관 적용
 
 ### Credits
-- **rhwp** (MIT, pjc0247) — HWP5 배포용 복호화 및 lenient CFB 파싱 알고리즘의 참조 구현
+- **rhwp** (MIT, edwardkim) — HWP5 배포용 복호화 및 lenient CFB 파싱 알고리즘의 참조 구현
 
 ## [1.8.0] - 2026-04-04
 

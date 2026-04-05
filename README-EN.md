@@ -2,7 +2,7 @@
 
 **모두 파싱해버리겠다** — The Korean Document Platform.
 
-[![npm version](https://img.shields.io/badge/npm-v2.0.0-cb3837.svg)](https://www.npmjs.com/package/kordoc)
+[![npm version](https://img.shields.io/badge/npm-v2.0.1-cb3837.svg)](https://www.npmjs.com/package/kordoc)
 [![license](https://img.shields.io/npm/l/kordoc.svg)](https://github.com/chrisryugj/kordoc/blob/main/LICENSE)
 [![node](https://img.shields.io/node/v/kordoc.svg)](https://nodejs.org)
 
@@ -26,9 +26,9 @@ Beyond simple text extraction, kordoc automates the **entire lifecycle of Korean
 
 ---
 
-## What's New in v2.0.0
+## What's New in v2.0
 
-- **HWP5 Distribution Document Decryption** — Decrypt view-restricted HWP files with AES-128 ECB. Pure JS implementation, no native dependencies. Algorithm ported from [rhwp](https://github.com/pjc0247/rhwp) (MIT).
+- **🔓 Distribution (View-Restricted) HWP Parsing** — HWP files locked for distribution-only viewing can now be parsed. AES-128 ECB decryption, pure JS implementation. Algorithm ported from [rhwp](https://github.com/edwardkim/rhwp) (MIT).
 - **Corrupted HWP File Recovery** — Recover files rejected by standard CFB modules via direct FAT/directory parsing. Ported from rhwp's LenientCfbReader.
 - **HWP5 Footnote/Endnote/Hyperlink Extraction** — Footnote text linking, hyperlink URL extraction with XSS sanitization.
 - **HWPX Table Merge Fix** — Fixed colspan/rowspan grid calculation bug causing cell misalignment.
@@ -289,7 +289,7 @@ Production-tested across 5 Korean government projects: school curriculum plans, 
 [MIT](./LICENSE)
 
 This project includes the following open-source components:
-- **rhwp** (MIT, pjc0247) — HWP5 distribution decryption and lenient CFB parsing algorithms
+- **rhwp** (MIT, edwardkim) — HWP5 distribution decryption and lenient CFB parsing algorithms
 - **OpenDataLoader PDF** (Apache 2.0, Hancom Inc.) — PDF table detection algorithms
 - **cfb** (Apache 2.0, SheetJS) — HWP5 OLE2 container parsing
 - **pdfjs-dist** (Apache 2.0, Mozilla) — PDF text extraction

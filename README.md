@@ -2,7 +2,7 @@
 
 **모두 파싱해버리겠다.**
 
-[![npm version](https://img.shields.io/badge/npm-v2.0.0-cb3837.svg)](https://www.npmjs.com/package/kordoc)
+[![npm version](https://img.shields.io/badge/npm-v2.0.1-cb3837.svg)](https://www.npmjs.com/package/kordoc)
 [![license](https://img.shields.io/npm/l/kordoc.svg)](https://github.com/chrisryugj/kordoc/blob/main/LICENSE)
 
 > *대한민국에서 둘째가라면 서러울 문서지옥. 거기서 7년 버틴 공무원이 만들었습니다.*
@@ -27,10 +27,10 @@ HWP, HWPX, PDF, XLSX, DOCX — 관공서에서 쏟아지는 모든 문서를 파
 
 ---
 
-## v2.0.0 변경사항
+## v2.0 변경사항
 
-- **HWP5 배포용 문서 복호화** — 열람 제한 HWP 파일을 AES-128 ECB로 복호화. 순수 JS 구현, 네이티브 의존성 없음. [rhwp](https://github.com/pjc0247/rhwp)(MIT) 알고리즘 포팅.
-- **손상된 HWP 파일 복구** — 표준 CFB 모듈이 거부하는 파일을 직접 FAT/디렉토리 파싱으로 복구. rhwp의 LenientCfbReader 포팅.
+- **🔓 배포용(열람 제한) HWP 파싱 지원** — 관공서에서 배포용으로 잠근 HWP 파일도 이제 파싱됩니다. AES-128 ECB 복호화, 순수 JS 구현. [rhwp](https://github.com/edwardkim/rhwp)(MIT) 알고리즘 포팅.
+- **손상된 HWP 파일 복구** — 표준 CFB 모듈이 거부하는 파일을 직접 FAT/디렉토리 파싱으로 복구. rhwp LenientCfbReader 포팅.
 - **HWP5 각주/미주/하이퍼링크 추출** — 각주 본문 텍스트 연결, 하이퍼링크 URL 추출 및 XSS 살균.
 - **HWPX 표 병합 밀림 수정** — colspan/rowspan 그리드 계산 버그 수정.
 - **보안 강화** — CFB 섹터 크기 검증, sanitizeHref 3중 경로 일관 적용.
@@ -282,7 +282,7 @@ import type {
 [MIT](./LICENSE)
 
 이 프로젝트는 아래 오픈소스를 포함합니다:
-- **rhwp** (MIT, pjc0247) — HWP5 배포용 복호화 및 lenient CFB 파싱 알고리즘
+- **rhwp** (MIT, edwardkim) — HWP5 배포용 복호화 및 lenient CFB 파싱 알고리즘
 - **OpenDataLoader PDF** (Apache 2.0, Hancom Inc.) — PDF 테이블 감지 알고리즘
 - **cfb** (Apache 2.0, SheetJS) — HWP5 OLE2 컨테이너 파싱
 - **pdfjs-dist** (Apache 2.0, Mozilla) — PDF 텍스트 추출
