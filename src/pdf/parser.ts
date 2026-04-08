@@ -65,6 +65,8 @@ interface NormItem {
   fontName: string
   /** hidden text 여부 (투명/0pt) */
   isHidden: boolean
+  /** pdfjs 공백 아이템이 이 아이템 직전에 있었음 — 단어 경계 힌트 */
+  hasSpaceBefore?: boolean
 }
 
 export async function parsePdfDocument(buffer: ArrayBuffer, options?: ParseOptions): Promise<InternalParseResult> {
@@ -542,13 +544,18 @@ function extractBlocksWithGrids(
     // 그리드 영역 내 텍스트 아이템 수집
     const tableItems: NormItem[] = []
     const pad = 3
+    const gridW = grid.bbox.x2 - grid.bbox.x1
     for (const item of items) {
       if (usedItems.has(item)) continue
-      if (item.x >= grid.bbox.x1 - pad && item.x + item.w <= grid.bbox.x2 + pad &&
-          item.y >= grid.bbox.y1 - pad && item.y <= grid.bbox.y2 + pad) {
-        tableItems.push(item)
-        usedItems.add(item)
-      }
+      // Y 범위 체크
+      if (item.y < grid.bbox.y1 - pad || item.y > grid.bbox.y2 + pad) continue
+      // X 범위 체크 — 아이템의 시작과 끝이 모두 그리드 안에 있어야 함
+      if (item.x < grid.bbox.x1 - pad || item.x + item.w > grid.bbox.x2 + pad) continue
+      // 좁은 그리드(120px 미만)에서 큰 아이템이 경계에 걸치면 제외
+      // 제목 텍스트가 인접 그리드에 잡히는 것을 방지
+      if (gridW < 120 && item.x + item.w > grid.bbox.x2 - 2) continue
+      tableItems.push(item)
+      usedItems.add(item)
     }
 
     // 셀 추출
@@ -791,31 +798,83 @@ function dominantStyle(items: NormItem[]): { fontSize: number; fontName: string 
 
 function normalizeItems(rawItems: PdfTextItem[]): NormItem[] {
   const items: NormItem[] = []
+  // pdfjs 공백 아이템 위치 수집 — 단어 경계 힌트로 활용
+  const spacePositions: { x: number; y: number }[] = []
 
   for (const i of rawItems) {
-    if (typeof i.str !== "string" || !i.str.trim()) continue
+    if (typeof i.str !== "string") continue
+    const x = Math.round(i.transform[4])
+    const y = Math.round(i.transform[5])
+
+    if (!i.str.trim()) {
+      // 공백 전용 아이템: 위치만 기록 (단어 구분 힌트)
+      spacePositions.push({ x, y })
+      continue
+    }
 
     const scaleY = Math.abs(i.transform[3])
     const scaleX = Math.abs(i.transform[0])
     const fontSize = Math.round(Math.max(scaleY, scaleX))
-    const x = Math.round(i.transform[4])
-    const y = Math.round(i.transform[5])
     const w = Math.round(i.width)
     const h = Math.round(i.height)
     const isHidden = fontSize === 0 || (i.width === 0 && i.str.trim().length > 0)
 
+    // letterSpacing이 적용된 숫자/기호 문자열 정규화
+    // "45 0 -7 3 40 )" → "450-7340)" (전화번호, 금액 등)
+    let text = i.str.trim()
+    if (/^[\d\s\-().·,☎]+$/.test(text) && /\d/.test(text) && / /.test(text)) {
+      text = text.replace(/ /g, "")
+    }
+
     // 균등배분 TextItem 분해: "홍 보 지 원 반" → 개별 글자 아이템으로
-    const split = splitEvenSpacedItem(i.str.trim(), x, w, fontSize)
+    const split = splitEvenSpacedItem(text, x, w, fontSize)
     if (split) {
       for (const s of split) {
         items.push({ text: s.text, x: s.x, y, w: s.w, h, fontSize, fontName: i.fontName || "", isHidden })
       }
     } else {
-      items.push({ text: i.str.trim(), x, y, w, h, fontSize, fontName: i.fontName || "", isHidden })
+      items.push({ text, x, y, w, h, fontSize, fontName: i.fontName || "", isHidden })
     }
   }
 
-  return items.sort((a, b) => b.y - a.y || a.x - b.x)
+  const sorted = items.sort((a, b) => b.y - a.y || a.x - b.x)
+
+  // 1. 가짜 볼드 중복 제거: 같은 텍스트가 거의 동일한 좌표(±3px)에 2~3회 겹쳐진 경우
+  // PDF에서 볼드 효과를 위해 텍스트를 여러 번 렌더링하는 기법
+  const deduped: NormItem[] = []
+  for (let i = 0; i < sorted.length; i++) {
+    let isDup = false
+    // Y 정렬(desc)이므로 역순 스캔 — Y 차이가 tolerance를 넘으면 중단
+    for (let j = deduped.length - 1; j >= 0; j--) {
+      const prev = deduped[j]
+      if (prev.y - sorted[i].y > 3) break // 이전 아이템이 너무 높음 → 중단
+      if (Math.abs(prev.y - sorted[i].y) <= 3 &&
+          prev.text === sorted[i].text && Math.abs(prev.x - sorted[i].x) <= 3) {
+        isDup = true
+        break
+      }
+    }
+    if (!isDup) deduped.push(sorted[i])
+  }
+
+  // 2. 공백 아이템 위치를 NormItem.hasSpaceBefore로 전파
+  // 같은 Y라인(±3px)에서 공백 아이템의 x가 현재 아이템 직전(왼쪽)에 있으면 표시
+  if (spacePositions.length > 0) {
+    for (const item of deduped) {
+      for (const sp of spacePositions) {
+        // 같은 Y라인(±3px) + 공백이 아이템 왼쪽에 인접 (0 ~ 20px 이내)
+        if (Math.abs(sp.y - item.y) <= 3) {
+          const dist = item.x - sp.x
+          if (dist >= 0 && dist <= 20) {
+            item.hasSpaceBefore = true
+            break
+          }
+        }
+      }
+    }
+  }
+
+  return deduped
 }
 
 /**
@@ -1194,6 +1253,12 @@ function mergeLineSimple(items: NormItem[]): string {
       continue
     }
 
+    // pdfjs 공백 아이템이 있었으면 단어 경계 — 갭 크기 무관하게 공백 삽입
+    if (sorted[i].hasSpaceBefore && gap >= avgFs * 0.05) {
+      result += " "
+      result += sorted[i].text
+      continue
+    }
     // 매우 작은 갭 — 공백 없이 붙임
     if (gap < avgFs * 0.15) { /* no space */ }
     // 한글 관련 작은 갭 — PDF 문자 개별 배치 잔재
