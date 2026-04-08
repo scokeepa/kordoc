@@ -356,11 +356,16 @@ function tableToMarkdown(table: IRTable): string {
       if (!cell) continue
       display[r][c] = sanitizeText(cell.text).replace(/\n/g, "<br>")
 
+      // colSpan: 병합된 열에 셀 내용 복제 (정보 보존)
+      // rowSpan: 빈 칸으로 유지 (수직 반복 방지)
       for (let dr = 0; dr < cell.rowSpan; dr++) {
         for (let dc = 0; dc < cell.colSpan; dc++) {
           if (dr === 0 && dc === 0) continue
           if (r + dr < numRows && c + dc < numCols) {
             skip.add(`${r + dr},${c + dc}`)
+            if (dr === 0) {
+              display[r][c + dc] = cell.text.replace(/\n/g, "<br>")
+            }
           }
         }
       }
