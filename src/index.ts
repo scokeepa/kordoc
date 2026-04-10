@@ -13,6 +13,10 @@ import { parseXlsxDocument } from "./xlsx/parser.js"
 import { parseDocxDocument } from "./docx/parser.js"
 import type { ParseResult, ParseOptions } from "./types.js"
 import { classifyError, toArrayBuffer } from "./utils.js"
+import { fillFormFields } from "./form/filler.js"
+import type { FillResult } from "./form/filler.js"
+import { blocksToMarkdown } from "./table/builder.js"
+import { markdownToHwpx } from "./hwpx/generator.js"
 
 // ─── 메인 API ────────────────────────────────────────
 
@@ -121,10 +125,67 @@ export async function parseDocx(buffer: ArrayBuffer, options?: ParseOptions): Pr
   }
 }
 
+// ─── 서식 채우기 API ────────────────────────────────
+
+/** 서식 채우기 출력 포맷 */
+export type FillOutputFormat = "markdown" | "hwpx"
+
+/** 서식 채우기 결과 */
+export interface FillFormOutput {
+  /** 채워진 문서 (markdown: string, hwpx: ArrayBuffer) */
+  output: string | ArrayBuffer
+  /** 출력 포맷 */
+  format: FillOutputFormat
+  /** 채우기 상세 결과 */
+  fill: FillResult
+}
+
+/**
+ * 서식 문서를 파싱하여 필드를 채우고, 원하는 포맷으로 출력.
+ *
+ * @param input 템플릿 문서 (파일 경로 또는 버퍼)
+ * @param values 채울 값 맵 (라벨 → 값)
+ * @param outputFormat 출력 포맷 (기본: "markdown")
+ * @returns FillFormOutput
+ *
+ * @example
+ * ```ts
+ * import { fillForm } from "kordoc"
+ * const result = await fillForm("신청서.hwp", {
+ *   "성명": "홍길동",
+ *   "전화번호": "010-1234-5678",
+ * }, "hwpx")
+ * // result.output → ArrayBuffer (HWPX 파일)
+ * ```
+ */
+export async function fillForm(
+  input: string | ArrayBuffer | Buffer,
+  values: Record<string, string>,
+  outputFormat: FillOutputFormat = "markdown",
+): Promise<FillFormOutput> {
+  const parsed = await parse(input)
+  if (!parsed.success) {
+    throw new Error(`서식 파싱 실패: ${parsed.error}`)
+  }
+
+  const fill = fillFormFields(parsed.blocks, values)
+
+  if (outputFormat === "hwpx") {
+    const markdown = blocksToMarkdown(fill.blocks)
+    const hwpxBuffer = await markdownToHwpx(markdown)
+    return { output: hwpxBuffer, format: "hwpx", fill }
+  }
+
+  const markdown = blocksToMarkdown(fill.blocks)
+  return { output: markdown, format: "markdown", fill }
+}
+
 // ─── 게임체인저 API ─────────────────────────────────
 
 export { compare, diffBlocks } from "./diff/compare.js"
 export { extractFormFields } from "./form/recognize.js"
+export { fillFormFields } from "./form/filler.js"
+export type { FillResult } from "./form/filler.js"
 export { markdownToHwpx } from "./hwpx/generator.js"
 
 // ─── Re-exports ──────────────────────────────────────

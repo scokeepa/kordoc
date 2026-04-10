@@ -3,9 +3,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod"
-import { readFileSync, realpathSync, openSync, readSync, closeSync, statSync } from "fs"
-import { resolve, isAbsolute, extname } from "path"
-import { parse, detectFormat, blocksToMarkdown, compare, extractFormFields } from "./index.js"
+import { readFileSync, writeFileSync, realpathSync, openSync, readSync, closeSync, statSync, mkdirSync } from "fs"
+import { resolve, isAbsolute, extname, dirname } from "path"
+import { parse, detectFormat, blocksToMarkdown, compare, extractFormFields, fillFormFields, markdownToHwpx } from "./index.js"
 import { VERSION, toArrayBuffer, sanitizeError, KordocError } from "./utils.js"
 import { extractHwp5MetadataOnly } from "./hwp5/parser.js"
 import { extractHwpxMetadataOnly } from "./hwpx/parser.js"
@@ -398,6 +398,89 @@ server.tool(
       const form = extractFormFields(result.blocks)
       return {
         content: [{ type: "text", text: JSON.stringify(form, null, 2) }],
+      }
+    } catch (err) {
+      return {
+        content: [{ type: "text", text: `오류: ${sanitizeError(err)}` }],
+        isError: true,
+      }
+    }
+  }
+)
+
+// ─── 도구: fill_form ───────────────────────────────
+
+server.tool(
+  "fill_form",
+  "한국 서식 문서의 빈칸을 채워서 새 문서로 출력합니다. 서식을 파싱하고 레이블에 맞는 값을 입력한 뒤, 마크다운 또는 HWPX로 저장합니다.",
+  {
+    file_path: z.string().min(1).describe("서식 템플릿 문서의 절대 경로 (HWP, HWPX, PDF, XLSX, DOCX)"),
+    fields: z.record(z.string(), z.string()).describe("채울 필드 맵 (라벨 → 값). 예: {\"성명\": \"홍길동\", \"전화번호\": \"010-1234-5678\"}"),
+    output_format: z.enum(["markdown", "hwpx"]).default("markdown").describe("출력 포맷: markdown (기본) 또는 hwpx"),
+    output_path: z.string().optional().describe("출력 파일 저장 경로 (선택). 지정 시 파일로 저장, 미지정 시 텍스트로 반환"),
+  },
+  async ({ file_path, fields, output_format, output_path }) => {
+    try {
+      const { buffer } = readValidatedFile(file_path)
+
+      // 1) 파싱
+      const result = await parse(buffer)
+      if (!result.success) {
+        return {
+          content: [{ type: "text", text: `파싱 실패: ${result.error}` }],
+          isError: true,
+        }
+      }
+
+      // 2) 서식 필드 인식 (미리보기)
+      const formInfo = extractFormFields(result.blocks)
+      if (formInfo.fields.length === 0) {
+        return {
+          content: [{ type: "text", text: `서식 필드를 찾을 수 없습니다. 일반 문서이거나 서식 패턴이 감지되지 않았습니다.` }],
+          isError: true,
+        }
+      }
+
+      // 3) 필드 채우기
+      const fillResult = fillFormFields(result.blocks, fields)
+
+      // 4) 출력 생성
+      const markdown = blocksToMarkdown(fillResult.blocks)
+
+      const summary = [
+        `채워진 필드: ${fillResult.filled.length}개`,
+        fillResult.unmatched.length > 0 ? `매칭 실패: ${fillResult.unmatched.join(", ")}` : null,
+        `원본 서식 필드: ${formInfo.fields.length}개 (확신도 ${(formInfo.confidence * 100).toFixed(0)}%)`,
+      ].filter(Boolean).join(" | ")
+
+      if (output_format === "hwpx") {
+        const hwpxBuffer = await markdownToHwpx(markdown)
+
+        if (output_path) {
+          mkdirSync(dirname(resolve(output_path)), { recursive: true })
+          writeFileSync(resolve(output_path), Buffer.from(hwpxBuffer))
+          return {
+            content: [{ type: "text", text: `[${summary}]\n\nHWPX 파일 저장: ${resolve(output_path)}` }],
+          }
+        }
+
+        // HWPX는 바이너리라 경로 없으면 마크다운으로 미리보기 제공
+        return {
+          content: [{ type: "text", text: `[${summary}]\n\n⚠️ output_path를 지정하면 HWPX 파일로 저장됩니다. 미리보기:\n\n${markdown}` }],
+        }
+      }
+
+      // markdown 출력
+      if (output_path) {
+        mkdirSync(dirname(resolve(output_path)), { recursive: true })
+        writeFileSync(resolve(output_path), markdown, "utf-8")
+        return {
+          content: [{ type: "text", text: `[${summary}]\n\n마크다운 파일 저장: ${resolve(output_path)}\n\n${markdown}` }],
+        }
+      }
+
+      return {
+        content: [{ type: "text", text: `[${summary}]\n\n${markdown}` }],
       }
     } catch (err) {
       return {
