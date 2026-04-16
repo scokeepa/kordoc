@@ -28,12 +28,19 @@ HWP, HWPX, PDF, XLSX, DOCX — 관공서에서 쏟아지는 모든 문서를 파
 
 ---
 
-## v2.3.0 변경사항
+## v2.4.0 변경사항
+
+- **🔓 HWPX DRM 배포용 문서 자동 추출** — 공공기관 배포용 DRM이 걸린 HWPX 파일을 한컴 오피스 COM API로 자동 텍스트 추출. `manifest.xml`에서 암호화 감지 → `HWPFrame.HwpObject`의 `GetPageText`로 페이지별 추출 → Markdown 변환. Windows + 한컴 오피스 설치 환경에서 별도 설정 없이 동작.
+
+<details>
+<summary>v2.3.0 변경사항</summary>
 
 - **📄 HWPML 2.x 파서 추가** — XML 기반 한컴 문서(`.hwp` XML 방식) 파싱 지원. `npx kordoc <file.hwp>`에서 `지원하지 않는 파일 형식` 오류가 나던 XML 기반 공문서를 이제 Markdown으로 변환할 수 있습니다. HWP 5.x 바이너리와 자동 구분(XML 시그니처 감지).
 - **🧩 중첩 테이블 마커** — HWPX/HWP5에서 셀 내부 중첩 테이블이 있던 위치에 `[중첩 테이블 #N]` 마커 삽입. 큰 중첩 테이블(≥3행 + ≥2열)은 별도 블록으로 분리, 작은 것은 셀 내 평탄화. HWP5는 기존에 내용이 완전히 손실되던 것을 마커로 복구.
 - **🖼️ HWPX 이미지 추출 버그 수정** — `binaryItemIDRef`가 확장자 없이(`"image1"`) 저장된 HWPX에서 이미지 추출이 실패하던 문제 해결. ZIP 내 파일명 regex 매칭으로 복원.
 - **📄 PDF 머리글/바닥글 감지 개선** — 텍스트 반복 패턴 + y좌표 클러스터링 하이브리드. 페이지마다 달라지는 동적 머리글(챕터명 등)도 위치 기반으로 감지. 감지 영역 10% → 12%로 확장.
+
+</details>
 
 <details>
 <summary>v2.2.4 변경사항</summary>

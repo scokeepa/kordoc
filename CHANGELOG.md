@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.4.0] - 2026-04-17
+
+### Added
+- **HWPX DRM 배포용 문서 자동 추출** — `manifest.xml`에 `encryption-data`가 감지되면 한컴 오피스 COM API(`HWPFrame.HwpObject`)의 `GetPageText`로 페이지별 텍스트를 자동 추출. Windows + 한컴 오피스 설치 환경에서 DRM 암호화된 공공문서(서울시 등)를 별도 설정 없이 파싱 가능.
+- **`ParseOptions.filePath`** — DRM COM fallback에 필요한 원본 파일 경로. `parse(filePath)` 호출 시 자동 설정.
+
+### Fixed
+- **CLI `filePath` 미전달** — CLI에서 `parse(buffer, options)` 호출 시 `filePath`가 누락되어 DRM fallback이 동작하지 않던 문제 수정.
+
 ## [2.2.0] - 2026-04-08
 
 ### Security

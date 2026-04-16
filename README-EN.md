@@ -27,12 +27,19 @@ Beyond simple text extraction, kordoc automates the **entire lifecycle of Korean
 
 ---
 
-## What's New in v2.3.0
+## What's New in v2.4.0
+
+- **🔓 HWPX DRM Document Auto-Extraction** — Automatically extracts text from DRM-protected HWPX files (Korean government distribution documents). Detects `encryption-data` in `manifest.xml` → opens via Hancom Office COM API (`HWPFrame.HwpObject`) → extracts text page-by-page using `GetPageText` → converts to Markdown. Works automatically on Windows with Hancom Office installed.
+
+<details>
+<summary>v2.3.0 changes</summary>
 
 - **📄 HWPML 2.x Parser** — Added support for XML-based HWP files (`.hwp` in XML format). Government documents that previously returned "unsupported format" are now fully parsed to Markdown. Auto-detected by XML signature (`<?xml` + `<HWPML`), separate from HWP 5.x binary files.
 - **🧩 Nested Table Markers** — HWPX/HWP5 now insert `[중첩 테이블 #N]` markers where nested tables appear inside cells. Large nested tables (≥3 rows + ≥2 cols) are split into separate blocks; small ones are flattened inline. HWP5 previously dropped nested table content entirely — now preserved via markers.
 - **🖼️ HWPX Image Extraction Fix** — Fixed images being silently dropped when `binaryItemIDRef` was stored without an extension (e.g. `"image1"`). ZIP entries are now resolved via regex matching.
 - **📄 PDF Header/Footer Detection** — Hybrid text-repeat + y-position clustering. Dynamic headers (per-page chapter titles etc.) are now caught via position signals even when text varies. Zone widened from 10% to 12%.
+
+</details>
 
 <details>
 <summary>v2.2.4 changes</summary>
