@@ -15,6 +15,24 @@ HWP, HWPX, PDF, XLSX, DOCX — 관공서에서 쏟아지는 모든 문서를 파
 
 ---
 
+## ⚡ 30초 설치 (AI 에이전트 연동)
+
+**macOS / Linux / Windows 공용**. Node.js 18+ 만 있으면 됩니다.
+
+```bash
+npx -y kordoc setup
+```
+
+대화형 마법사가:
+1. 사용 중인 AI 클라이언트 번호 선택 (Claude Desktop / Cursor / Claude Code / Windsurf / VS Code / Gemini CLI / Zed / Antigravity — 설치된 건 `[감지됨]` 표시)
+2. 설정 파일 자동 패치 → 클라이언트 재시작
+
+Windows 도 자동으로 `cmd /c npx` 래핑. 수동 JSON 편집 불필요. 재시작하면 8개 문서 파싱 도구 (`parse_document`, `parse_table`, `fill_form` 등) 활성화.
+
+> **CLI 로만 쓸 거면** 설치 없이 `npx kordoc <파일>` 바로 사용. 아래 [CLI](#cli) 섹션 참고.
+
+---
+
 ## 💡 kordoc으로 무엇을 할 수 있나요?
 
 단순한 텍스트 추출을 넘어, **공문서 처리를 위한 모든 과정**을 자동화합니다.
@@ -278,12 +296,35 @@ npx kordoc watch ./문서 --webhook https://api/hook  # 웹훅 알림
 
 ## MCP 서버 (Claude / Cursor / Windsurf)
 
+**자동 설치 (추천)**:
+
+```bash
+npx -y kordoc setup
+```
+
+대화형으로 AI 클라이언트를 감지해 설정 파일을 자동 패치. Windows 에서 `cmd /c npx` 래핑도 자동. 상세는 위 [30초 설치](#-30초-설치-ai-에이전트-연동) 섹션.
+
+**수동 등록 (macOS / Linux)**:
+
 ```json
 {
   "mcpServers": {
     "kordoc": {
       "command": "npx",
       "args": ["-y", "kordoc", "mcp"]
+    }
+  }
+}
+```
+
+**수동 등록 (Windows — Claude Desktop 이 `.cmd` 를 못 찾을 때)**:
+
+```json
+{
+  "mcpServers": {
+    "kordoc": {
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "kordoc", "mcp"]
     }
   }
 }

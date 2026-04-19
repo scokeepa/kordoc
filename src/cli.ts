@@ -287,4 +287,12 @@ program
     await import("./mcp.js")
   })
 
+program
+  .command("setup")
+  .description("대화형 설치 마법사 — AI 클라이언트 자동 등록 (Mac/Win/Linux)")
+  .action(async () => {
+    const { runSetup } = await import("./setup.js")
+    await runSetup()
+  })
+
 program.parse()
