@@ -552,6 +552,10 @@ function extractBlocksWithGrids(
     const numGridRows = grid.rowYs.length - 1
     const numGridCols = grid.colXs.length - 1
     if (numGridRows === 1 && numGridCols >= 2) continue
+    // 1열 다행 그리드 (세로선 없는 표) → 스킵하여 클러스터 감지로 열 추론 위임
+    // Why: 행 구분선만 있는 표는 builder.ts 의 1-col branch 에서 세로 일렬로 플래튼되어
+    //      테이블 구조가 무너짐. 클러스터 기반 X좌표 정렬로 열을 복원할 기회 제공.
+    if (numGridCols === 1 && numGridRows >= 2) continue
 
     // 그리드 영역 내 텍스트 아이템 수집
     const tableItems: NormItem[] = []
