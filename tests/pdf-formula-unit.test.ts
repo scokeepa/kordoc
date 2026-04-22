@@ -11,6 +11,9 @@ import {
   stripTrailingWhitespace,
   collapseSpaces,
   stripEmptyGroups,
+  fixLatexSpacing,
+  isTrivialFormula,
+  normalizeFormulaSpacing,
 } from "../src/pdf/formula/postprocess.js"
 import { __internal } from "../src/pdf/formula/detector.js"
 
@@ -42,17 +45,150 @@ describe("formula postprocess", () => {
     assert.equal(stripEmptyGroups("\\vec{}{x}"), "{x}")
   })
 
-  it("clean LaTeX 에서는 idempotent", () => {
+  it("clean LaTeX 에서는 idempotent (공백 없는 형태)", () => {
     const s = "\\frac{a}{b}"
     assert.equal(postProcessLatex(s), s)
-    const s2 = "x^{2} + y^{2} = z^{2}"
-    assert.equal(postProcessLatex(s2), s2)
+    // normalizeFormulaSpacing 이 연산자 주변 공백을 제거 (LaTeX math mode 에선 의미 동일)
+    assert.equal(postProcessLatex("x^{2}+y^{2}=z^{2}"), "x^{2}+y^{2}=z^{2}")
+    assert.equal(postProcessLatex("x^{2} + y^{2} = z^{2}"), "x^{2}+y^{2}=z^{2}")
   })
 
   it("복합 후처리", () => {
-    // trailing quad + 빈 sup + 연속 공백
+    // trailing quad + 빈 sup + 연속 공백 — normalizer 로 `\sum_{i=1}` 뒤 공백 제거
     const raw = "\\sum_{i=1}^{} x_i   \\quad"
-    assert.equal(postProcessLatex(raw), "\\sum_{i=1} x_i")
+    assert.equal(postProcessLatex(raw), "\\sum_{i=1}x_i")
+  })
+})
+
+describe("fixLatexSpacing", () => {
+  it("\\cmd 뒤 영문자 분리", () => {
+    assert.equal(fixLatexSpacing("\\cdotd"), "\\cdot d")
+    assert.equal(fixLatexSpacing("\\timesd_{k}"), "\\times d_{k}")
+    assert.equal(fixLatexSpacing("O(n^{2}\\cdotd)"), "O(n^{2}\\cdot d)")
+  })
+
+  it("\\cmd 뒤 중괄호는 영향 없음", () => {
+    assert.equal(fixLatexSpacing("\\mathrm{model}"), "\\mathrm{model}")
+    assert.equal(fixLatexSpacing("\\frac{a}{b}"), "\\frac{a}{b}")
+    assert.equal(fixLatexSpacing("\\sqrt{d_{k}}"), "\\sqrt{d_{k}}")
+  })
+
+  it("\\cmd 뒤 공백이 이미 있으면 유지", () => {
+    assert.equal(fixLatexSpacing("\\cdot d"), "\\cdot d")
+    assert.equal(fixLatexSpacing("\\times d_{k}"), "\\times d_{k}")
+  })
+
+  it("일반 텍스트는 변경 없음", () => {
+    assert.equal(fixLatexSpacing("x + y = z"), "x + y = z")
+    assert.equal(fixLatexSpacing("d_{k}=d_{v}=64"), "d_{k}=d_{v}=64")
+  })
+})
+
+describe("normalizeFormulaSpacing", () => {
+  it("\\mathrm 내부 character 공백 제거", () => {
+    assert.equal(
+      normalizeFormulaSpacing("\\mathrm { m o d d }"),
+      "\\mathrm{modd}",
+    )
+    assert.equal(
+      normalizeFormulaSpacing("\\mathrm { M u l t i H e a d }"),
+      "\\mathrm{MultiHead}",
+    )
+  })
+
+  it("숫자 사이 공백 제거", () => {
+    assert.equal(normalizeFormulaSpacing("6 4"), "64")
+    assert.equal(normalizeFormulaSpacing("2 0 1 8"), "2018")
+    assert.equal(normalizeFormulaSpacing("d = 5 1 2"), "d=512")
+  })
+
+  it("괄호/구두점 주변 공백 제거", () => {
+    assert.equal(normalizeFormulaSpacing("( Q, K, V )"), "(Q,K,V)")
+    assert.equal(normalizeFormulaSpacing("h \\~ = 8"), "h\\~=8")
+  })
+
+  it("\\cmd 뒤 변수 공백 유지", () => {
+    assert.equal(normalizeFormulaSpacing("\\cdot d"), "\\cdot d")
+    assert.equal(normalizeFormulaSpacing("\\alpha b"), "\\alpha b")
+    assert.equal(normalizeFormulaSpacing("O ( n \\cdot d )"), "O(n\\cdot d)")
+  })
+
+  it("첨자/중괄호 주변 공백 제거", () => {
+    assert.equal(normalizeFormulaSpacing("d _ { k }"), "d_{k}")
+    assert.equal(normalizeFormulaSpacing("W _ { i } ^ { Q }"), "W_{i}^{Q}")
+  })
+
+  it("연속 공백 정리", () => {
+    assert.equal(normalizeFormulaSpacing("a   b"), "ab")
+    assert.equal(normalizeFormulaSpacing("\\cdot   d"), "\\cdot d")
+  })
+
+  it("빈 문자열/공백만", () => {
+    assert.equal(normalizeFormulaSpacing(""), "")
+    assert.equal(normalizeFormulaSpacing("   "), "")
+  })
+})
+
+describe("isTrivialFormula", () => {
+  it("2자 이하 trivial", () => {
+    assert.equal(isTrivialFormula("O"), true)
+    assert.equal(isTrivialFormula("a"), true)
+    assert.equal(isTrivialFormula("."), true)
+    assert.equal(isTrivialFormula("n"), true)
+    assert.equal(isTrivialFormula("{O}"), true) // 중괄호 제거 후 1자
+    assert.equal(isTrivialFormula(" x "), true)
+    assert.equal(isTrivialFormula("ab"), true)
+  })
+
+  it("단일 \\cmd trivial", () => {
+    assert.equal(isTrivialFormula("\\imath"), true)
+    assert.equal(isTrivialFormula("\\varPi"), true)
+    assert.equal(isTrivialFormula("\\pi"), true)
+    assert.equal(isTrivialFormula("\\eta"), true)
+    assert.equal(isTrivialFormula("\\sigma"), true)
+    assert.equal(isTrivialFormula("\\theta"), true)
+    assert.equal(isTrivialFormula("\\emptyset"), true)
+  })
+
+  it("단일 \\mathrm 장식 trivial", () => {
+    assert.equal(isTrivialFormula("\\mathrm{fcloc}"), true)
+    assert.equal(isTrivialFormula("\\mathrm{abc}"), true)
+    assert.equal(isTrivialFormula("\\textrm{hi}"), true)
+    assert.equal(isTrivialFormula("\\operatorname{max}"), true)
+  })
+
+  it("반복 토큰 dominant trivial", () => {
+    assert.equal(isTrivialFormula("\\pm \\pm \\pm \\pm \\pm"), true)
+    assert.equal(isTrivialFormula("a a a a"), true)
+    // \cap \exists \exists \rceil — 4 토큰, max=2, 50% → trivial
+    assert.equal(isTrivialFormula("\\cap \\exists \\exists \\rceil"), true)
+  })
+
+  it("의미 있는 수식은 keep", () => {
+    assert.equal(isTrivialFormula("O(1)"), false)
+    assert.equal(isTrivialFormula("O(n^{2})"), false)
+    assert.equal(isTrivialFormula("d_{k}"), false) // 4자
+    assert.equal(isTrivialFormula("d_{k}=64"), false)
+    assert.equal(isTrivialFormula("\\sqrt{d_{k}}"), false)
+    assert.equal(isTrivialFormula("PE_{pos+k}"), false)
+    assert.equal(isTrivialFormula("\\mathrm{Attention}(Q,K,V)"), false)
+    assert.equal(
+      isTrivialFormula("d_{k}=d_{v}=d_{\\mathrm{model}}/h=64"),
+      false,
+    )
+    assert.equal(isTrivialFormula("\\frac{1}{\\sqrt{d_{k}}}"), false)
+  })
+
+  it("postProcessLatex 가 trivial 시 빈 문자열 반환", () => {
+    assert.equal(postProcessLatex("O"), "")
+    assert.equal(postProcessLatex("\\imath"), "")
+    assert.equal(postProcessLatex("\\mathrm{fcloc}"), "")
+    assert.equal(postProcessLatex("\\pm \\pm \\pm \\pm"), "")
+    // 정상 수식은 유지
+    assert.equal(
+      postProcessLatex("d_{k}=d_{v}=64"),
+      "d_{k}=d_{v}=64",
+    )
   })
 })
 
