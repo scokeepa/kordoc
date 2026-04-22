@@ -5,6 +5,70 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.6.2] - 2026-04-23
+
+### Fixed — PDF 수식 OCR noise 필터 대폭 강화
+
+MFR tokenizer 가 뱉는 garbage 수식을 제거하기 위한 12개 trivial 필터 규칙 추가. arxiv Attention 논문 기준 순수 noise 1개만 남아 **96% 정확도** 달성. ResNet (Figure 많음) 기준 **90%**. 핵심 수식 100% 유지.
+
+새로 추가된 `isTrivialFormula` 규칙:
+- substring 반복 (5~15자, 3회+, 커버리지 60%+) — `\alpha_{1}=\alpha_{2}=...` 같은 OCR 반복 오류
+- `\square` placeholder 포함 — MFR 이 인식 실패 영역에 출력하는 마커
+- 단독 숫자/실수 (`$1.0$`, `$42$`)
+- 동일 괄호 그룹 연속 중복 (`(T_{2})(T_{2})`, `{X}{X}`)
+- 함수 인자 반복 (`C(\tau_{2},\mu^{\prime},\mu^{\prime})`)
+- `\frac{X}{X}` 분자=분모 (의미 없는 = 1)
+- matrix placeholder (`\begin{matrix}` + `\cdots` 2회+)
+- 비정상 2~3자 변수 prefix (`cl_{\mathrm{model}}`)
+- `\mathrm{word}` + 이항연산자 + single (`\mathrm{to}-\infty` 다이어그램 레이블)
+- `\mathsf`/`\mathtt`/`\texttt` 포함 (다이어그램 타이포그래피 전용)
+- `\begin{aligned}` + 등호 없음 (aligned 는 항상 등호 필요)
+- `\begin{matrix}` + `\downarrow` 반복 (architecture diagram)
+
+### Technical notes
+- 312 tests pass (신규 11)
+- e2e 검증: arxiv Attention/ResNet/kosimcse
+
+---
+
+## [2.6.1] - 2026-04-23
+
+### Fixed — PDF 수식 OCR 품질 기초 개선
+
+v2.6.0 의 PDF 수식 OCR 이 다이어그램 내 단일 글자/기호/반복 패턴을 수식으로 오탐하고, MFR tokenizer 의 과공백/공백 누락 버그, 수식 블록이 페이지 끝에 몰리는 문제를 해결.
+
+- **trivial 필터** (`postProcessLatex` 내부) — 단일 글자 (`$O$`, `$a$`), 단일 `\cmd` (`$\imath$`, `$\pi$`, `$\sigma$`), 장식 `\mathrm{...}` 단독 (`$\mathrm{fcloc}$`), 반복 토큰 (`$\pm \pm \pm \pm$`), 심볼만 조합 (`$\cap \exists \exists \rceil$`) 제거.
+- **MFR tokenizer 과공백 정규화** — `\mathrm { m o d d }` → `\mathrm{modd}`, `6 4` → `64`, `( Q, K, V )` → `(Q,K,V)`. `\cmd` 뒤 변수 공백은 의미 보존 위해 유지 (`\cdot d` 유지).
+- **`\cmd` 뒤 공백 누락 복원** — `\cdotd` → `\cdot d`, `\timesd_{k}` → `\times d_{k}` (알려진 LaTeX 명령어 사전 기반 최장 prefix 분할).
+- **수식 bbox y 좌표 매핑** (`parser.ts`) — 기존엔 검출된 수식이 페이지 끝에 몰려 배치되었으나, pdfium 픽셀 → PDF 포인트 변환 후 같은 페이지 pdfjs 블록들의 y center 와 비교해 **올바른 위치에 삽입**. MultiHead/FFN/PE 수식이 논문 흐름에 맞게 배치.
+- **pdfjs 중복 블록 제거** — 수식 bbox 와 60%+ 겹치는 pdfjs 텍스트 블록을 자동 삭제. OCR 수식과 pdfjs 추출 텍스트의 중복 해결.
+- **`cleanPdfText` 수식 라인 보호** — `collapseEvenSpacing` 이 수식 내부 LaTeX 공백을 "균등배분" 으로 오인식해 `\cdot d` → `\cdotd` 로 합쳐지던 숨은 버그 수정.
+
+### Technical notes
+- 298 tests pass (신규 13)
+
+---
+
+## [2.6.0] - 2026-04-23
+
+### Added — PDF 이미지 기반 수식 OCR (Pix2Text MFD + MFR)
+
+PDF 스캔/이미지 영역의 수식을 LaTeX 로 자동 변환. [breezedeus/pix2text](https://github.com/breezedeus/pix2text) 의 ONNX 모델 활용.
+
+- **MFD (Mathematical Formula Detection)** — YOLOv8 기반 수식 영역 검출. inline (`$...$`) 과 display (`$$...$$`) 분류.
+- **MFR (Mathematical Formula Recognition)** — DeiT encoder + TrOCR decoder greedy 디코딩. vocab 1200, max 256 tokens.
+- **모델 자동 다운로드** — 첫 실행 시 `~/.cache/kordoc/models/pix2text/` 에 저장. SHA-256 검증 포함.
+- **의존성** (optional): `onnxruntime-node`, `sharp`, `@huggingface/transformers`, `@hyzyla/pdfium`.
+
+### Tuned
+- MFD threshold: display 0.25 → 0.40, inline 0.25 → 0.30 (다이어그램 오탐 감소)
+- 최소 bbox 면적 80 px² (이보다 작으면 OCR noise 가능성 높음)
+
+### Note
+- 이 버전의 OCR 결과에는 단일 글자/반복 noise 가 다수 포함되어 있음. v2.6.1 / v2.6.2 에서 점진적으로 개선.
+
+---
+
 ## [2.5.2] - 2026-04-22
 
 macOS 한컴 재테스트 피드백 3건 반영 (#4 후속).
